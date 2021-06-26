@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  message_generation
 )
 
 ## System dependencies are found with CMake's conventions
@@ -56,8 +57,8 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate services in the 'srv' folder
 # add_service_files(
 #   FILES
-#   Service1.srv
-#   Service2.srv
+   #Service1.srv
+   #Service2.srv
 # )
 
 ## Generate actions in the 'action' folder
@@ -204,8 +205,8 @@ include_directories(
 # endif()
 add_executable(progetto src/progetto.cpp)
 target_link_libraries(progetto ${catkin_LIBRARIES})
-#add_dependencies(progetto progetto_generate_messages_cpp)
-#add_dependencies(progetto progetto_gencpp)
+add_dependencies(progetto progetto_generate_messages_cpp)
+add_dependencies(progetto progetto_gencpp)
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
