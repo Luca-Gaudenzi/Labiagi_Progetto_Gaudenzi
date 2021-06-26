@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   message_generation
+  sensor_msgs
+  laser_geometry
 )
 
 ## System dependencies are found with CMake's conventions
@@ -207,6 +209,6 @@ add_executable(progetto src/progetto.cpp)
 target_link_libraries(progetto ${catkin_LIBRARIES})
 add_dependencies(progetto progetto_generate_messages_cpp)
 add_dependencies(progetto progetto_gencpp)
-
+include_directories("/usr/include/eigen3")
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
