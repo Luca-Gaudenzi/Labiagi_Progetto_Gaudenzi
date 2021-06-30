@@ -16,7 +16,7 @@
 #include <cmath>
 
 #define CONSTANT_LINEAR 500
-#define CONSTANT_ANGULAR 55
+#define CONSTANT_ANGULAR 30//55
 
 #define GOAL_REPULSIVE_CONSTANT_LINEAR 500//200
 #define GOAL_REPULSIVE_CONSTANT_ANGULAR 55 // 55
@@ -44,7 +44,7 @@ void Goal_Callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
     target_y=0.0;
     ROS_INFO("DESTINAZIONE: (%f %f)\n", goal_x, goal_y);
 }
-void Prog_Cmd_vel_Callback(const progetto::Prog_Cmd_vel::ConstPtr& msg){
+/*void Prog_Cmd_vel_Callback(const progetto::Prog_Cmd_vel::ConstPtr& msg){
     ROS_INFO("ricevuto comando movimento %f %f\n", msg->vx, msg->vy); 
     cmd_vel_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di un messaggio m di velocità Prog_Cmd_vel, venga inviato un comando di velocità
                             //basato sul messaggio m, ma con alcune modifiche per evitare urti
@@ -54,8 +54,18 @@ void Prog_Cmd_vel_Callback(const progetto::Prog_Cmd_vel::ConstPtr& msg){
     //determiniamo la posizione target nella quale calcoleremo i momenti rotazionali agenti sul robot
     target_x=vel_x*0.2; //
     //target_y=vel_y*0.2;
+}*/
+void Prog_Cmd_vel_Callback(const geometry_msgs::Twist::ConstPtr& msg){
+    ROS_INFO("ricevuto comando movimento %f %f %f\n", msg->linear.x, msg->linear.y, msg->angular.z); 
+    cmd_vel_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di un messaggio m di velocità Prog_Cmd_vel, venga inviato un comando di velocità
+                            //basato sul messaggio m, ma con alcune modifiche per evitare urti
+    vel_x=msg->linear.x;
+    vel_y=msg->linear.y; //in realtà, avendo considerato robot non olotomici, la componente y di movimento non è considerata
+    angular=msg->angular.z;
+    //determiniamo la posizione target nella quale calcoleremo i momenti rotazionali agenti sul robot
+    target_x=vel_x*0.2; //
+    //target_y=vel_y*0.2;
 }
-
 
 void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     if(goal_arrived==false) return; //se non ho ricevuto un goal, allora non eseguo questa procedura
@@ -260,11 +270,11 @@ void Laser_Cmd_vel_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     if(sum_y<0) sin=-sin;*/
     //calcolo velocità angolare
     msg_send.angular.z=distanza_rob_target * sum_y / CONSTANT_ANGULAR;  
-    
+    ROS_INFO("forze angolari %f %f\n", msg_send.angular.z, angular);
     //agiamo sulle componenti x e y della velocità del robot
     sum_x*=abs (vel_x) / CONSTANT_LINEAR; 
     sum_y*=abs (vel_y) / CONSTANT_LINEAR;
-    ROS_INFO("forze repulsive: %f %f\n", sum_x, sum_y);
+    //ROS_INFO("forze repulsive: %f %f\n", sum_x, sum_y);
     
 
     msg_send.linear.x=sum_x + vel_x;
@@ -306,10 +316,12 @@ int main(int argc, char **argv){
     ROS_INFO("subscriber su %s avviato\n", argv[2]);
     
     ROS_INFO("subscriber su /Prog_Cmd_vel avviato\n");
-    ros::Subscriber vel_sub=n.subscribe("/Prog_Cmd_vel", 5, Prog_Cmd_vel_Callback);
+    ros::Subscriber vel_sub=n.subscribe("/Prog_Cmd_vel", 1, Prog_Cmd_vel_Callback);
+    /*ROS_INFO("subscriber su /Prog_Cmd_vel_Converter avviato\n");
+    ros::Subscriber converter_sub=n.subscribe("/Prog_Cmd_vel_Converter", 5, Prog_Cmd_vel_Converter_Callback);*/
     ROS_INFO("inviare messaggi su topic /Prog_Cmd_vel per far muovere il robot\n");
 
-    ros::Subscriber goal_sub=n.subscribe("/move_base_simple/goal", 5, Goal_Callback);
+    //ros::Subscriber goal_sub=n.subscribe("/move_base_simple/goal", 5, Goal_Callback);
     ROS_INFO("ricezione messaggi avviata\n");
     ros::spin();
     return 0;
