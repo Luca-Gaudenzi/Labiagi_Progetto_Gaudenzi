@@ -21,8 +21,8 @@
 #define GOAL_REPULSIVE_CONSTANT_LINEAR 500//200
 #define GOAL_REPULSIVE_CONSTANT_ANGULAR 55 // 55
 #define GOAL_ATTRACTIVE_CONSTANT_LINEAR 1 //5
+#define GOAL_ATTRACTIVE_CONSTANT_ANGULAR 1
 #define MAX_DIST 1
-//using Isometry2f=Isometry_<float, 2>;
 
 ros::Publisher vel_pub;
 float goal_x=0;
@@ -37,7 +37,7 @@ bool cmd_vel_arrived=false;
 
 using namespace Eigen;
 void Goal_Callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
-    goal_arrived=true;
+    goal_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di una messaggio dal laser scanner, venga inviato un comando di velocità che tenti di portare il robot nei pressi del goal
     goal_x=msg->pose.position.x;
     goal_y=msg->pose.position.y;
     target_x=0.2;
@@ -45,19 +45,20 @@ void Goal_Callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
     ROS_INFO("DESTINAZIONE: (%f %f)\n", goal_x, goal_y);
 }
 void Prog_Cmd_vel_Callback(const progetto::Prog_Cmd_vel::ConstPtr& msg){
-    ROS_INFO("entrato %f %f\n", msg->vx, msg->vy);
-    cmd_vel_arrived=true;
+    ROS_INFO("ricevuto comando movimento %f %f\n", msg->vx, msg->vy); 
+    cmd_vel_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di un messaggio m di velocità Prog_Cmd_vel, venga inviato un comando di velocità
+                            //basato sul messaggio m, ma con alcune modifiche per evitare urti
     vel_x=msg->vx;
-    vel_y=msg->vy;
+    vel_y=msg->vy; //in realtà, avendo considerato robot non olotomici, la componente y di movimento non è considerata
     angular=msg->angular;
-    //determiniamo la posizione target con il comando di velocità preso in input
-    target_x=vel_x*0.2;
-    target_y=vel_y*0.2;
+    //determiniamo la posizione target nella quale calcoleremo i momenti rotazionali agenti sul robot
+    target_x=vel_x*0.2; //
+    //target_y=vel_y*0.2;
 }
 
 
 void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
-    if(goal_arrived==false) return; //se ho ricevuto un goal, allora eseguo questa procedura
+    if(goal_arrived==false) return; //se non ho ricevuto un goal, allora non eseguo questa procedura
     //ricaviamo le informazioni per il calcolo del vettore velocità
     //preparo le istanze degli oggetti che userò per ricavare queste informazioni
     sensor_msgs::PointCloud cloud;
@@ -72,14 +73,14 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     
     //ricavo le trasformate che userò per ottenere i punti della nuvola rispetto al robot e la posizione del goal rispetto al robot
     try{
-        //questa conversioen in questo caso è poco utile, in quanto laser e robot sono molto vicini
+        //questa conversione in questo caso è poco utile, in quanto laser e robot sono molto vicini
         listener.waitForTransform("base_footprint", "base_laser_link", ros::Time(0), ros::Duration(10.0));
         listener.lookupTransform("base_footprint", "base_laser_link", ros::Time(0), transform_obstacle);
 
         listener_goal.waitForTransform("base_footprint", "map", ros::Time(0), ros::Duration(10.0));
         listener_goal.lookupTransform("base_footprint", "map", ros::Time(0), transform_goal);
     }
-    catch(tf::TransformException &ex){
+    catch(tf::TransformException &ex){ //se ci sono errori
         ROS_ERROR("%s", ex.what());
         ros::Duration(1.0).sleep();
         return;
@@ -95,31 +96,32 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     for(auto& point: cloud.points){
         p(0)=point.x;
         p(1)=point.y;
-        //ROS_INFO("untrasformed %f %f\n", p(0), p(1));
+        //ROS_INFO("untrasformed obstacle point %f %f\n", p(0), p(1));
         p=laser_transform * p; //ricavo il punto ostacolo nel sistema riferimento del robot
         float modulo= 1/sqrt(point.x*point.x+point.y*point.y); //il modulo della forza repulsiva dipende dalla distanza dall'ostacolo
-        //ROS_INFO("trasformed %f %f\n", p(0), p(1));
+        //ROS_INFO("trasformed obstacle point %f %f\n", p(0), p(1));
         sum_x+=p(0) * modulo * modulo;
         sum_y+=p(1) * modulo * modulo;
-        //la direzione della forza repulsiva è quella del vettore robot-punto ostacolo (il verso è opposto)
+        //la direzione della forza repulsiva è quella del vettore robot->punto-ostacolo (il verso è opposto)
         
-        //determiniamo la posizione target
     }
+    //ricaviamo le coordinate del punto goal rispetto al robot
     p(0) = goal_x;
     p(1) = goal_y;
     p = goal_transform * p;
-    float robot_goal_x=p(0);
-    float robot_goal_y=p(1);
+    float robot_goal_x=p(0); //coordinata x del punto goal rispetto al robot
+    float robot_goal_y=p(1); //coordinata y del punto goal rispetto al robot
 
-    float distanza_rob_target=sqrt(target_x * target_x + target_y * target_y);
+    float distanza_rob_target=sqrt(target_x * target_x + target_y * target_y);  //usata per il calcolo del momento angolare
     //ROS_INFO("distanza rob_target %f\n", distanza_rob_target);
     //le forze che consideriamo hanno stessa direzione e verso opposto dei vettori robot-punto collisione
-    //quindi prendiamo l'opposto delle forze calcolate
+    //quindi prendiamo l'opposto delle forze calcolate (sono forze repulsive)
     sum_x=-sum_x;
     sum_y=-sum_y;
     
     geometry_msgs::Twist msg_send;
-    //le velocità date in input sono un peso per le forze ricavate dai punti ostacoli, in questa maniera all' aumentare o al diminuire della velocità in input cambiano anche le forze dei punti
+    //le velocità date in input sono un peso per le forze ricavate dai punti ostacoli, in questa maniera all' aumentare o al diminuire della velocità in input cambiano anche le forze 
+    //repulsive dei punti ostacolo
     //così dovremmo essere in grado di fermarci davanti ad un ostacolo a prescindere dalla velocità che abbiamo
     //in questo caso la velocità in input considerata è quella derivante dalla forza attrattiva del punto goal
 
@@ -127,87 +129,80 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
 
     float distanza_robot_goal=sqrt(robot_goal_y * robot_goal_y + robot_goal_x * robot_goal_x);
     //ROS_INFO("distanza robot-goal %f\n", distanza_robot_goal);
-    if(distanza_robot_goal < MAX_DIST){
+    if(distanza_robot_goal < MAX_DIST){ //se ci troviamo ad una distanza bassa dal goal, allora consideriamo il goal come raggiunto
         ROS_INFO("ARRIVATO\n");
-        goal_arrived=false;
+        goal_arrived=false; //abbiamo raggiunto il goal, non dobbiamo più ripetere questa procedura (se non viene settato un nuovo goal)
         return;
     }
     //dalla posizione del goal rispetto al robot ricavo la velocità attrattiva verso il goal
-    float vel_goal_x =robot_goal_x / GOAL_ATTRACTIVE_CONSTANT_LINEAR;
+    float vel_goal_x =robot_goal_x / GOAL_ATTRACTIVE_CONSTANT_LINEAR; //dividiamo le velocità attrattive per una costante determinata tramite esperimenti 
     float vel_goal_y =robot_goal_y / GOAL_ATTRACTIVE_CONSTANT_LINEAR;
-    if(distanza_robot_goal<2){
-        vel_goal_x*=3;
+    if(distanza_robot_goal<2 * MAX_DIST){ //nel caso in cui 
+        vel_goal_x*=1.5;
     }
-    float goal_scalar_prod=(target_x * vel_goal_x) + (target_y * vel_goal_y);
+    //visto che abbiamo considerato un punto di calcolo per i momenti angolari sull'asse x del robot, non è necessario fare questi calcoli
+    
+    /*float goal_scalar_prod=(target_x * vel_goal_x) + (target_y * vel_goal_y);
     float goal_cos=goal_scalar_prod/(distanza_rob_target * sqrt(vel_goal_y * vel_goal_y + vel_goal_x * vel_goal_x));
     float goal_sin=sqrt(1- goal_cos * goal_cos);
     if(vel_goal_y<0) goal_sin=-goal_sin;
-    float goal_angular_vel = distanza_rob_target * sqrt(vel_goal_y * vel_goal_y + vel_goal_x * vel_goal_x) * goal_sin;
-    ROS_INFO("goal_cos %f\n", goal_cos);
-    ROS_INFO("goal_sin %f\n", goal_sin);
-    ROS_INFO("goal_angular_vel %f\n", goal_angular_vel);
-    //la forza attrattiva avrà come direzione e verso (robot_goal_x, robot_goal_y)
-    //la componente y influirà solamente sulla direzione del robot essend non olotomico
-    //ROS_INFO("posizione goal untrasformed: %f %f\n", goal_x, goal_y);
-    //ROS_INFO("posizione goal trasformed: %f %f\n", robot_goal_x, robot_goal_y);
-    //ROS_INFO("FORZA ATTRATTIVA: %f %f\n", vel_goal_x, vel_goal_y);
-    //ROS_INFO("DISTANZA DAL GOAL: %f %f\n", robot_goal_x, robot_goal_y);
+    float goal_angular_vel = distanza_rob_target * sqrt(vel_goal_y * vel_goal_y + vel_goal_x * vel_goal_x) * goal_sin;*/
+
+    //visto che abbiamo considerato un punto di calcolo per i momenti angolari sull'asse x del robot, è sufficiente questo calcolo 
+    //float goal_angular_vel = vel_goal_y * distanza_rob_target /(GOAL_ATTRACTIVE_CONSTANT_ANGULAR * sqrt(distanza_robot_goal/2)); //la componente y interviene nella rotazione del robot, "spingendolo" a girarsi verso il punto goal
+    float goal_angular_vel = vel_goal_y * distanza_rob_target /(GOAL_ATTRACTIVE_CONSTANT_ANGULAR );
+    //ROS_INFO("goal_angular_vel %f\n", goal_angular_vel);
+
+    //la forza attrattiva avrà come componenti (vel_goal_x, vel_goal_y)
+    //la componente y influirà solamente sulla rotazione del robot, essendo non olotomico
+
     //agiamo sulla componente angolare, l'idea è di usare i momenti angolari calcolati sul punto target(punto al quale si arriverebbe senza influenze delle forze repulsive)
     
-    
-
-    //calcolo seno tra due vettori
-    float scalar_prod=(target_x * sum_x) + (target_y * sum_y);
-    
-    float cos=scalar_prod/(distanza_rob_target * sqrt(sum_x*sum_x + sum_y*sum_y));
-    
-    float sin;
-    if(cos>1 || cos<-1) sin=0;
-    else sin=sqrt(1-cos*cos);
-    
-    if(sum_y<0) sin=-sin;
     //calcolo velocità angolare
-    msg_send.angular.z=distanza_rob_target * sqrt(sum_x * sum_x + sum_y * sum_y) * sin;
+    float repulsive_angular_vel = sum_y * distanza_rob_target / GOAL_REPULSIVE_CONSTANT_ANGULAR; //la costante GOAL_REPULSIVE_CONSTANT_ANGULAR è state determinata
+                                                                                                        //tramite esperimenti
+    //ROS_INFO("angular repulsive %f\n", repulsive_angular_vel );
+    //ROS_INFO("angular attractive %f\n", goal_angular_vel );
     
-    msg_send.angular.z/=GOAL_REPULSIVE_CONSTANT_ANGULAR;   
-    ROS_INFO("angular repulsive %f\n", msg_send.angular.z );
-    ROS_INFO("angular attractive %f\n", goal_angular_vel );
-    //if(msg_send.angular.z<10 && msg_send.angular.z>-10) msg_send.angular.z=0;
     //agiamo sulle componenti x e y della velocità del robot
+    //il calcolo delle componenti della forza totale repulsiva è pesato sul valore assoluto delle componenti della forza attrattiva del robot
+        //in questo modo, anche se la forza è attrattiva è molto alta, la forza repulsiva cresce in maniera tale da riuscire ad evitare gli urti 
     sum_x*= abs(vel_goal_x) / GOAL_REPULSIVE_CONSTANT_LINEAR; 
     sum_y*= abs(vel_goal_y) / GOAL_REPULSIVE_CONSTANT_LINEAR;
     //ROS_INFO("FORZA REPULSIVA %f %f\n", sum_x, sum_y);
     
-    //ora calcoliamo l'effetto attrattivo del punto di goal
-    //calcoliamo le coordinate del punto di gol rispetto al frame del robot
-    
+    //il comando di velocità da dare è la somma delle forza attrattive e repulsive
     msg_send.linear.x=sum_x + vel_goal_x;
 
-    //msg_send.linear.y=sum_y/CONSTANT+vel_y;
+    //msg_send.linear.y=sum_y+vel_y;  //non considera in quanto stiamo considerando robot non olotomici
 
-    msg_send.angular.z+=goal_angular_vel;
-    //MOMENTANEO
-    //msg_send.angular.z=0;
-    //MOMENTANEO
+    //l'effetto dei momenti rotazionali è dato dalla somma degli effetti attrattivi e repulsivi
+    msg_send.angular.z= goal_angular_vel + repulsive_angular_vel;
+    if(msg_send.linear.x<-0.2) msg_send.angular.z = - msg_send.angular.z;
+    
+    //in caso di stallo (velocità movimento e rotazione basse), tentiamo di sbloccare, cercando di roteare verso il goal
     if(abs(msg_send.linear.x)<0.1 && abs(msg_send.angular.z)<0.1) msg_send.angular.z+=goal_angular_vel/2; // se sono in una situazione di stallo, prova a girarti verso l'obiettivo
     ROS_INFO("comando velocità: %f %f %f\n", msg_send.linear.x, msg_send.linear.y, msg_send.angular.z);
 
+    //decommentare se si vogliono evitare micro roteazioni durante il tragitto
     //if(msg_send.angular.z<0.1 && msg_send.angular.z>-0.1) msg_send.angular.z=0;
     vel_pub.publish(msg_send);
 }
 
 void Laser_Cmd_vel_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
-    if(cmd_vel_arrived==false) return;
-    cmd_vel_arrived=false;
+    if(cmd_vel_arrived==false) return; //se non è arrivato nessun comando di velocità, questa procedura non deve essere eseguita
+    cmd_vel_arrived=false; //visto che stiamo processando questo comando di velocità, settiamo la variabile a false per evitare di processarlo due volte
     
+    //inizializzazione oggetti usati per la procedura
     sensor_msgs::PointCloud cloud;
     laser_geometry::LaserProjection projector;
     tf::TransformListener listener;
 
+    //ottenimento punti ostacolo dal laser scanner
     projector.transformLaserScanToPointCloud("base_laser_link", *laser_msg, cloud, listener);
     
     tf::StampedTransform transform_obstacle;
-
+    //otteniamo la trasformata per ottenere i punti ostacolo rispetto al robot
     try{
         //questa conversioen in questo caso è poco utile, in quanto laser e robot sono molto vicini
         listener.waitForTransform("base_footprint", "base_laser_link", ros::Time(0), ros::Duration(10.0));
@@ -219,7 +214,7 @@ void Laser_Cmd_vel_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
         ros::Duration(1.0).sleep();
         return;
     }
-
+    //otteniamo la trasformata sottoforma di matrice
     Eigen::Isometry2f laser_transform = convertPose2D(transform_obstacle);
     
     float sum_x=0;
@@ -227,21 +222,17 @@ void Laser_Cmd_vel_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     Eigen::Vector2f p;
     for(auto& point: cloud.points){
         
-        //float distanza=1/modulo;
         p(0)=point.x;
         p(1)=point.y;
         //ROS_INFO("untrasformed %f %f\n", p(0), p(1));
         p=laser_transform * p;
-        //float modulo= 1/sqrt(p(0) * p(0) + p(1) * p(2));
         float modulo= 1/sqrt(point.x*point.x+point.y*point.y);
         //ROS_INFO("trasformed %f %f\n", p(0), p(1));
         sum_x+=p(0) * modulo * modulo;
         sum_y+=p(1) * modulo * modulo;
         
-        
-        //determiniamo la posizione target
     }
-    //le forze che consideriamo hanno stessa direzione e verso opposto dei vettori robot-punto collisione
+    //le forze che consideriamo hanno stessa direzione e verso opposto dei vettori robot->punto-collisione
     //quindi prendiamo l'opposto delle forze calcolate
     sum_x=-sum_x;
     sum_y=-sum_y;
@@ -251,33 +242,29 @@ void Laser_Cmd_vel_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     //agiamo sulla componente angolare, l'idea è di usare i momenti angolari calcolati sul punto target
     
     float distanza_rob_target=sqrt(target_x*target_x + target_y*target_y);
-    ROS_INFO("la distanza vale %f\n", distanza_rob_target);
+    //ROS_INFO("la distanza vale %f\n", distanza_rob_target);
     //calcolo seno tra due vettori
-    float scalar_prod=(target_x * sum_x) + (target_y * sum_y);
+    /*float scalar_prod=(target_x * sum_x) + (target_y * sum_y);
     float cos=scalar_prod/(distanza_rob_target * sqrt(sum_x*sum_x + sum_y*sum_y));
     float sin=sqrt(1-cos*cos);
 
-    if(sum_y<0) sin=-sin;
+    if(sum_y<0) sin=-sin;*/
     //calcolo velocità angolare
-    msg_send.angular.z=distanza_rob_target * sqrt(sum_x*sum_x + sum_y*sum_y) * sin;
-    msg_send.angular.z/=CONSTANT_ANGULAR;   
+    msg_send.angular.z=distanza_rob_target * sum_y / CONSTANT_ANGULAR;  
     
-    //if(msg_send.angular.z<10 && msg_send.angular.z>-10) msg_send.angular.z=0;
     //agiamo sulle componenti x e y della velocità del robot
-    sum_x*=vel_x; 
-    sum_y*=vel_y;
+    sum_x*=abs (vel_x) / CONSTANT_LINEAR; 
+    sum_y*=abs (vel_y) / CONSTANT_LINEAR;
     ROS_INFO("forze repulsive: %f %f\n", sum_x, sum_y);
     
-    //ora calcoliamo l'effetto attrattivo del punto di goal
-    //calcoliamo le coordinate del punto di gol rispetto al frame del robot
 
-    msg_send.linear.x=sum_x/CONSTANT_LINEAR+vel_x;
-
-    //msg_send.linear.y=sum_y/CONSTANT+vel_y;
+    msg_send.linear.x=sum_x + vel_x;
+    
+    //msg_send.linear.y=sum_y + vel_y;  opzione da usare se robot olotomico
 
     msg_send.angular.z+=angular;
-    ROS_INFO("%f %f %f\n", msg_send.linear.x, msg_send.linear.y, msg_send.angular.z);
-    //if(msg_send.angular.z<0.1 && msg_send.angular.z>-0.1) msg_send.angular.z=0;
+    ROS_INFO("vettore velocita %f %f %f\n", msg_send.linear.x, msg_send.linear.y, msg_send.angular.z);
+    //if(msg_send.angular.z<0.1 && msg_send.angular.z>-0.1) msg_send.angular.z=0;   //se vogliamo evitare piccole rotazioni durante il moto
     vel_pub.publish(msg_send);
 }
 
