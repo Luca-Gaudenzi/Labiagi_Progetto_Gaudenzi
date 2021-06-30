@@ -128,7 +128,7 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     
 
     float distanza_robot_goal=sqrt(robot_goal_y * robot_goal_y + robot_goal_x * robot_goal_x);
-    //ROS_INFO("distanza robot-goal %f\n", distanza_robot_goal);
+    ROS_INFO("distanza robot-goal %f\n", distanza_robot_goal);
     if(distanza_robot_goal < MAX_DIST){ //se ci troviamo ad una distanza bassa dal goal, allora consideriamo il goal come raggiunto
         ROS_INFO("ARRIVATO\n");
         goal_arrived=false; //abbiamo raggiunto il goal, non dobbiamo più ripetere questa procedura (se non viene settato un nuovo goal)
@@ -137,8 +137,13 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     //dalla posizione del goal rispetto al robot ricavo la velocità attrattiva verso il goal
     float vel_goal_x =robot_goal_x / GOAL_ATTRACTIVE_CONSTANT_LINEAR; //dividiamo le velocità attrattive per una costante determinata tramite esperimenti 
     float vel_goal_y =robot_goal_y / GOAL_ATTRACTIVE_CONSTANT_LINEAR;
-    if(distanza_robot_goal<2 * MAX_DIST){ //nel caso in cui 
-        vel_goal_x*=1.5;
+    if(distanza_robot_goal<2.0 * MAX_DIST){  
+        vel_goal_x*=2.0;
+        vel_goal_y*=2.0;
+    }
+    if(distanza_robot_goal<1.5 * MAX_DIST){  
+        vel_goal_x*=2.0;
+        vel_goal_y*=2.0;
     }
     //visto che abbiamo considerato un punto di calcolo per i momenti angolari sull'asse x del robot, non è necessario fare questi calcoli
     
@@ -150,7 +155,11 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
 
     //visto che abbiamo considerato un punto di calcolo per i momenti angolari sull'asse x del robot, è sufficiente questo calcolo 
     //float goal_angular_vel = vel_goal_y * distanza_rob_target /(GOAL_ATTRACTIVE_CONSTANT_ANGULAR * sqrt(distanza_robot_goal/2)); //la componente y interviene nella rotazione del robot, "spingendolo" a girarsi verso il punto goal
-    float goal_angular_vel = vel_goal_y * distanza_rob_target /(GOAL_ATTRACTIVE_CONSTANT_ANGULAR );
+    float goal_angular_vel;
+    /*if(distanza_robot_goal < 2.5){
+        goal_angular_vel = vel_goal_y * distanza_rob_target /(GOAL_ATTRACTIVE_CONSTANT_ANGULAR );
+    }*/
+    goal_angular_vel = vel_goal_y * distanza_rob_target;
     //ROS_INFO("goal_angular_vel %f\n", goal_angular_vel);
 
     //la forza attrattiva avrà come componenti (vel_goal_x, vel_goal_y)
@@ -185,7 +194,7 @@ void Laser_Goal_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
     ROS_INFO("comando velocità: %f %f %f\n", msg_send.linear.x, msg_send.linear.y, msg_send.angular.z);
 
     //decommentare se si vogliono evitare micro roteazioni durante il tragitto
-    //if(msg_send.angular.z<0.1 && msg_send.angular.z>-0.1) msg_send.angular.z=0;
+    if(msg_send.angular.z<0.1 && msg_send.angular.z>-0.1) msg_send.angular.z=0;
     vel_pub.publish(msg_send);
 }
 
