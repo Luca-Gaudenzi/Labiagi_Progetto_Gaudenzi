@@ -35,6 +35,7 @@ float target_y=0;
 bool goal_arrived=false;
 bool cmd_vel_arrived=false;
 
+int comando=0;
 using namespace Eigen;
 void Goal_Callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
     goal_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di una messaggio dal laser scanner, venga inviato un comando di velocità che tenti di portare il robot nei pressi del goal
@@ -44,17 +45,7 @@ void Goal_Callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
     target_y=0.0;
     ROS_INFO("DESTINAZIONE: (%f %f)\n", goal_x, goal_y);
 }
-/*void Prog_Cmd_vel_Callback(const progetto::Prog_Cmd_vel::ConstPtr& msg){
-    ROS_INFO("ricevuto comando movimento %f %f\n", msg->vx, msg->vy); 
-    cmd_vel_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di un messaggio m di velocità Prog_Cmd_vel, venga inviato un comando di velocità
-                            //basato sul messaggio m, ma con alcune modifiche per evitare urti
-    vel_x=msg->vx;
-    vel_y=msg->vy; //in realtà, avendo considerato robot non olotomici, la componente y di movimento non è considerata
-    angular=msg->angular;
-    //determiniamo la posizione target nella quale calcoleremo i momenti rotazionali agenti sul robot
-    target_x=vel_x*0.2; //
-    //target_y=vel_y*0.2;
-}*/
+
 void Prog_Cmd_vel_Callback(const geometry_msgs::Twist::ConstPtr& msg){
     ROS_INFO("ricevuto comando movimento %f %f %f\n", msg->linear.x, msg->linear.y, msg->angular.z); 
     cmd_vel_arrived=true; //questa variabile settata a true fa in modo che all'arrivo di un messaggio m di velocità Prog_Cmd_vel, venga inviato un comando di velocità
@@ -62,6 +53,7 @@ void Prog_Cmd_vel_Callback(const geometry_msgs::Twist::ConstPtr& msg){
     vel_x=msg->linear.x;
     vel_y=msg->linear.y; //in realtà, avendo considerato robot non olotomici, la componente y di movimento non è considerata
     angular=msg->angular.z;
+    if(comando==2) angular/=3;
     //determiniamo la posizione target nella quale calcoleremo i momenti rotazionali agenti sul robot
     target_x=vel_x*0.2; //
     //target_y=vel_y*0.2;
@@ -299,11 +291,17 @@ void Laser_Callback(const sensor_msgs::LaserScan::ConstPtr& laser_msg){
 
 int main(int argc, char **argv){
     //prendiamo gli input del programma
-    if(argc<3){
-        ROS_INFO("Dare in input: 1- topic comando di velocità da dare al robot\n2-laser scanner del robot\n");
+    if(argc<4){
+        ROS_INFO("Dare in input: 1- topic comando di velocità da dare al robot\n2-laser scanner del robot\n3-funzionalità (a: Convertitore velocita, b: Pathfollower, c: Goal Navigation\n");
         return -1;
     }
-    
+    if(strcmp(argv[3], "a") == 0) comando=1;
+    else if(strcmp(argv[3], "b") == 0) comando=2;
+    else if(strcmp(argv[3], "c") == 0) comando=3;
+    else{
+        ROS_INFO("comando in input errato: a: Convertitore velocita, b: Pathfollower, c: Goal Navigation\n");
+        return -1;
+    }
     ros::init(argc, argv, "progetto");
     
     ros::NodeHandle n;
@@ -312,16 +310,23 @@ int main(int argc, char **argv){
     vel_pub=n.advertise<geometry_msgs::Twist>(argv[1], 1000);
     ROS_INFO("publisher su %s avviato\n", argv[1]);
 
-    ros::Subscriber laser_sub= n.subscribe(argv[2], 5, Laser_Callback);
+    ros::Subscriber laser_sub= n.subscribe(argv[2], 1, Laser_Callback);
     ROS_INFO("subscriber su %s avviato\n", argv[2]);
-    
-    ROS_INFO("subscriber su /Prog_Cmd_vel avviato\n");
-    ros::Subscriber vel_sub=n.subscribe("/Prog_Cmd_vel", 1, Prog_Cmd_vel_Callback);
-    /*ROS_INFO("subscriber su /Prog_Cmd_vel_Converter avviato\n");
-    ros::Subscriber converter_sub=n.subscribe("/Prog_Cmd_vel_Converter", 5, Prog_Cmd_vel_Converter_Callback);*/
+
+    ros::Subscriber vel_sub;
+    if(comando!=3){
+        vel_sub=n.subscribe("/Prog_Cmd_vel", 1, Prog_Cmd_vel_Callback);
+        ROS_INFO("subscriber su /Prog_Cmd_vel avviato\n");
+    }
+
+    ros::Subscriber goal_sub;
+    if(comando==3){
+        goal_sub=n.subscribe("/move_base_simple/goal", 1, Goal_Callback);
+        ROS_INFO("subscriber su /move_base_simple/goal avviato\n");
+    }
     ROS_INFO("inviare messaggi su topic /Prog_Cmd_vel per far muovere il robot\n");
 
-    //ros::Subscriber goal_sub=n.subscribe("/move_base_simple/goal", 5, Goal_Callback);
+    
     ROS_INFO("ricezione messaggi avviata\n");
     ros::spin();
     return 0;
